@@ -1,0 +1,21 @@
+# dependencies
+/node_modules
+
+# Next.js
+/.next
+/out
+
+# local environment files
+.env
+.env.local
+
+# SQLite database files
+/prisma/*.db
+/prisma/*.db-journal
+
+# TypeScript
+*.tsbuildinfo
+
+# editor and operating system files
+.DS_Store
+Thumbs.db

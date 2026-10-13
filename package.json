@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src",
+    "lint": "eslint src tests",
+    "test:diary": "node --test tests/diary-api.test.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev"
   },

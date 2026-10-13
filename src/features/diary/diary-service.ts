@@ -59,6 +59,27 @@ export async function getDiaryById(id: string) {
   return diary ? toDiaryData(diary) : null;
 }
 
+export async function searchDiaries(query: string) {
+  const keyword = query.trim();
+
+  if (!keyword) {
+    return [];
+  }
+
+  const diaries = await prisma.diary.findMany({
+    where: {
+      OR: [
+        { completedTasks: { contains: keyword } },
+        { problems: { contains: keyword } },
+        { nextPlan: { contains: keyword } },
+      ],
+    },
+    orderBy: { date: "desc" },
+  });
+
+  return diaries.map(toDiaryData);
+}
+
 export async function saveTodayDiary(input: DiaryInput) {
   const date = getTodayDateKey();
   const diaryDate = dateKeyToDate(date);

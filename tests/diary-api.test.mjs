@@ -44,7 +44,7 @@ async function removeDatabase(path) {
   }
 }
 
-test("supports today's diary and historical diary views", { timeout: 60_000 }, async () => {
+test("supports diary saving, history, details, and search", { timeout: 60_000 }, async () => {
   process.env.DATABASE_URL = databaseUrl;
   const { PrismaClient } = await import("@prisma/client");
   const prisma = new PrismaClient();
@@ -107,7 +107,7 @@ test("supports today's diary and historical diary views", { timeout: 60_000 }, a
       body: JSON.stringify({
         completedTasks: "完成更新测试",
         problems: "问题已解决",
-        nextPlan: "进入下一阶段",
+        nextPlan: "进入下一阶段 AlphaPlan",
       }),
     });
     assert.equal(updateResponse.status, 200);
@@ -126,7 +126,7 @@ test("supports today's diary and historical diary views", { timeout: 60_000 }, a
     const previousDiary = await prisma.diary.create({
       data: {
         date: previousDay,
-        completedTasks: "完成历史列表页面",
+        completedTasks: "完成 YOLO 历史列表页面",
         problems: "需要确认排序",
         nextPlan: "检查详情内容",
         content: "",
@@ -136,7 +136,7 @@ test("supports today's diary and historical diary views", { timeout: 60_000 }, a
       data: {
         date: earlierDay,
         completedTasks: "整理更早的实验记录",
-        problems: "实验数据待复核",
+        problems: "BetaIssue 实验数据待复核",
         nextPlan: "补充实验结论",
         content: "",
       },
@@ -153,15 +153,45 @@ test("supports today's diary and historical diary views", { timeout: 60_000 }, a
     const historyPage = await fetch(`${baseUrl}/history`);
     assert.equal(historyPage.status, 200);
     const historyHtml = await historyPage.text();
-    assert.match(historyHtml, /完成历史列表页面/);
+    assert.match(historyHtml, /完成 YOLO 历史列表页面/);
     assert.match(historyHtml, new RegExp(`/diary/${previousDiary.id}`));
 
     const detailPage = await fetch(`${baseUrl}/diary/${earlierDiary.id}`);
     assert.equal(detailPage.status, 200);
     const detailHtml = await detailPage.text();
     assert.match(detailHtml, /整理更早的实验记录/);
-    assert.match(detailHtml, /实验数据待复核/);
+    assert.match(detailHtml, /BetaIssue 实验数据待复核/);
     assert.match(detailHtml, /补充实验结论/);
+
+    const completedSearch = await fetch(`${baseUrl}/api/diary/search?q=YOLO`).then((response) =>
+      response.json(),
+    );
+    assert.deepEqual(completedSearch.diaries.map((diary) => diary.id), [previousDiary.id]);
+
+    const problemSearch = await fetch(`${baseUrl}/api/diary/search?q=BetaIssue`).then((response) =>
+      response.json(),
+    );
+    assert.deepEqual(problemSearch.diaries.map((diary) => diary.id), [earlierDiary.id]);
+
+    const planSearch = await fetch(`${baseUrl}/api/diary/search?q=AlphaPlan`).then((response) =>
+      response.json(),
+    );
+    assert.deepEqual(planSearch.diaries.map((diary) => diary.id), [diaryId]);
+
+    const emptySearchResponse = await fetch(`${baseUrl}/api/diary/search?q=not-found`);
+    assert.equal(emptySearchResponse.status, 200);
+    const emptySearch = await emptySearchResponse.json();
+    assert.deepEqual(emptySearch.diaries, []);
+
+    const searchPage = await fetch(`${baseUrl}/search?q=YOLO`);
+    assert.equal(searchPage.status, 200);
+    const searchHtml = await searchPage.text();
+    assert.match(searchHtml, /完成 YOLO 历史列表页面/);
+    assert.match(searchHtml, new RegExp(`/diary/${previousDiary.id}`));
+
+    const emptySearchPage = await fetch(`${baseUrl}/search?q=not-found`);
+    assert.equal(emptySearchPage.status, 200);
+    assert.match(await emptySearchPage.text(), /未找到包含/);
     assert.equal(await prisma.diary.count(), 3);
   } finally {
     if (server && server.exitCode === null) {

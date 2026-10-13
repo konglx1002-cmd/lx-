@@ -34,10 +34,15 @@ function toDiaryData(diary: Diary): DiaryData {
   };
 }
 
-export async function getTodayDiary() {
+export async function getTodayDiary(userId: string) {
   const date = getTodayDateKey();
   const diary = await prisma.diary.findUnique({
-    where: { date: dateKeyToDate(date) },
+    where: {
+      userId_date: {
+        userId,
+        date: dateKeyToDate(date),
+      },
+    },
   });
 
   return {
@@ -46,20 +51,21 @@ export async function getTodayDiary() {
   };
 }
 
-export async function getAllDiaries() {
+export async function getAllDiaries(userId: string) {
   const diaries = await prisma.diary.findMany({
+    where: { userId },
     orderBy: { date: "desc" },
   });
 
   return diaries.map(toDiaryData);
 }
 
-export async function getDiaryById(id: string) {
-  const diary = await prisma.diary.findUnique({ where: { id } });
+export async function getDiaryById(userId: string, id: string) {
+  const diary = await prisma.diary.findFirst({ where: { id, userId } });
   return diary ? toDiaryData(diary) : null;
 }
 
-export async function searchDiaries(query: string) {
+export async function searchDiaries(userId: string, query: string) {
   const keyword = query.trim();
 
   if (!keyword) {
@@ -68,6 +74,7 @@ export async function searchDiaries(query: string) {
 
   const diaries = await prisma.diary.findMany({
     where: {
+      userId,
       OR: [
         { completedTasks: { contains: keyword } },
         { problems: { contains: keyword } },
@@ -80,13 +87,19 @@ export async function searchDiaries(query: string) {
   return diaries.map(toDiaryData);
 }
 
-export async function saveTodayDiary(input: DiaryInput) {
+export async function saveTodayDiary(userId: string, input: DiaryInput) {
   const date = getTodayDateKey();
   const diaryDate = dateKeyToDate(date);
   const diary = await prisma.diary.upsert({
-    where: { date: diaryDate },
+    where: {
+      userId_date: {
+        userId,
+        date: diaryDate,
+      },
+    },
     update: input,
     create: {
+      userId,
       date: diaryDate,
       ...input,
       content: "",

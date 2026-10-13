@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getDiaryById } from "@/features/diary/diary-service";
 import { formatDiaryDate } from "@/features/diary/format";
+import { getCurrentUser } from "@/lib/current-user";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,14 @@ function DiarySection({ title, content }: { title: string; content: string }) {
 }
 
 export default async function DiaryDetailPage({ params }: PageProps<"/diary/[id]">) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
   const { id } = await params;
-  const diary = await getDiaryById(id);
+  const diary = await getDiaryById(user.id, id);
 
   if (!diary) {
     notFound();

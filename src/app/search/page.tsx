@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { searchDiaries } from "@/features/diary/diary-service";
 import { formatDiaryDate } from "@/features/diary/format";
+import { getCurrentUser } from "@/lib/current-user";
 
 function Summary({ label, value }: { label: string; value: string }) {
   return (
@@ -13,9 +15,15 @@ function Summary({ label, value }: { label: string; value: string }) {
 }
 
 export default async function SearchPage({ searchParams }: PageProps<"/search">) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
   const rawQuery = (await searchParams).q;
   const query = (Array.isArray(rawQuery) ? rawQuery[0] : rawQuery ?? "").trim();
-  const diaries = query ? await searchDiaries(query) : [];
+  const diaries = query ? await searchDiaries(user.id, query) : [];
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12 sm:py-16">

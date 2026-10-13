@@ -8,6 +8,7 @@ import test from "node:test";
 const databaseUrl = "file:./diary-api-test.db";
 const databasePath = resolve("prisma/diary-api-test.db");
 const baseUrl = "http://127.0.0.1:3100";
+const authSecret = "diary-test-secret-with-at-least-32-characters";
 
 async function waitForServer(server, getOutput) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -16,10 +17,8 @@ async function waitForServer(server, getOutput) {
     }
 
     try {
-      const response = await fetch(`${baseUrl}/api/diary/today`);
-      if (response.ok) {
-        return;
-      }
+      const response = await fetch(`${baseUrl}/api/auth/get-session`);
+      if (response.ok) return;
     } catch {
       // The server is still starting.
     }
@@ -36,15 +35,125 @@ async function removeDatabase(path) {
       await rm(path, { force: true });
       return;
     } catch (error) {
-      if (error.code !== "EBUSY" || attempt === 19) {
-        throw error;
-      }
+      if (error.code !== "EBUSY" || attempt === 19) throw error;
       await new Promise((resolveWait) => setTimeout(resolveWait, 250));
     }
   }
 }
 
-test("supports diary saving, history, details, and search", { timeout: 60_000 }, async () => {
+function cookieFrom(response) {
+  const setCookie = response.headers.get("set-cookie");
+  assert.ok(setCookie, "authentication response should set a session cookie");
+  return setCookie.split(";", 1)[0];
+}
+
+async function register(name, email) {
+  const response = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl },
+    body: JSON.stringify({ name, email, password: "test-password" }),
+  });
+  assert.equal(response.status, 200, await response.text());
+  const cookie = cookieFrom(response);
+  const session = await fetch(`${baseUrl}/api/auth/get-session`, {
+    headers: { Cookie: cookie },
+  }).then((sessionResponse) => sessionResponse.json());
+  return { cookie, user: session.user };
+}
+
+function authenticatedFetch(path, cookie, init = {}) {
+  return fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: { ...init.headers, Cookie: cookie },
+  });
+}
+
+async function createSchema(prisma) {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE "User" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "email" TEXT NOT NULL,
+      "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+      "image" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE "Session" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "expiresAt" DATETIME NOT NULL,
+      "token" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      "ipAddress" TEXT,
+      "userAgent" TEXT,
+      "userId" TEXT NOT NULL,
+      CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE "Account" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "accountId" TEXT NOT NULL,
+      "providerId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "accessToken" TEXT,
+      "refreshToken" TEXT,
+      "idToken" TEXT,
+      "accessTokenExpiresAt" DATETIME,
+      "refreshTokenExpiresAt" DATETIME,
+      "scope" TEXT,
+      "password" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE "Verification" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "identifier" TEXT NOT NULL,
+      "value" TEXT NOT NULL,
+      "expiresAt" DATETIME NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE "Diary" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "date" DATETIME NOT NULL,
+      "completedTasks" TEXT NOT NULL,
+      "problems" TEXT NOT NULL,
+      "nextPlan" TEXT NOT NULL,
+      "content" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "Diary_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `);
+  await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX "User_email_key" ON "User"("email")');
+  await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX "Session_token_key" ON "Session"("token")');
+  await prisma.$executeRawUnsafe('CREATE INDEX "Session_userId_idx" ON "Session"("userId")');
+  await prisma.$executeRawUnsafe('CREATE INDEX "Account_userId_idx" ON "Account"("userId")');
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX "Verification_identifier_idx" ON "Verification"("identifier")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX "Diary_userId_date_key" ON "Diary"("userId", "date")',
+  );
+}
+
+test("isolates diary saving, history, details, and search by user", { timeout: 90_000 }, async () => {
+  const env = {
+    ...process.env,
+    DATABASE_URL: databaseUrl,
+    BETTER_AUTH_SECRET: authSecret,
+    BETTER_AUTH_URL: baseUrl,
+  };
   process.env.DATABASE_URL = databaseUrl;
   const { PrismaClient } = await import("@prisma/client");
   const prisma = new PrismaClient();
@@ -52,25 +161,11 @@ test("supports diary saving, history, details, and search", { timeout: 60_000 },
   let server;
 
   try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE "Diary" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "date" DATETIME NOT NULL,
-        "completedTasks" TEXT NOT NULL,
-        "problems" TEXT NOT NULL,
-        "nextPlan" TEXT NOT NULL,
-        "content" TEXT NOT NULL,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL
-      )
-    `);
-    await prisma.$executeRawUnsafe(
-      'CREATE UNIQUE INDEX "Diary_date_key" ON "Diary"("date")',
-    );
+    await createSchema(prisma);
 
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-p", "3100"], {
       cwd: process.cwd(),
-      env: { ...process.env, DATABASE_URL: databaseUrl },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     server.stdout.on("data", (chunk) => {
@@ -81,122 +176,154 @@ test("supports diary saving, history, details, and search", { timeout: 60_000 },
     });
 
     await waitForServer(server, () => output);
+    assert.equal((await fetch(`${baseUrl}/api/diary/today`)).status, 401);
 
-    const initialResponse = await fetch(`${baseUrl}/api/diary/today`);
-    const initial = await initialResponse.json();
-    assert.equal(initial.diary, null);
+    const userA = await register("用户 A", "user-a@example.com");
+    const userB = await register("用户 B", "user-b@example.com");
+    const initialA = await authenticatedFetch("/api/diary/today", userA.cookie).then((response) =>
+      response.json(),
+    );
+    const initialB = await authenticatedFetch("/api/diary/today", userB.cookie).then((response) =>
+      response.json(),
+    );
+    assert.equal(initialA.diary, null);
+    assert.equal(initialB.diary, null);
 
-    const createResponse = await fetch(`${baseUrl}/api/diary/today`, {
+    const createA = await authenticatedFetch("/api/diary/today", userA.cookie, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        completedTasks: "完成首次保存测试",
+        userId: userB.user.id,
+        completedTasks: "完成用户 A 首次保存测试",
         problems: "无",
         nextPlan: "验证刷新读取",
       }),
     });
-    assert.equal(createResponse.status, 200);
-
-    const firstReload = await fetch(`${baseUrl}/api/diary/today`).then((response) => response.json());
-    assert.equal(firstReload.diary.completedTasks, "完成首次保存测试");
-    const diaryId = firstReload.diary.id;
-
-    const updateResponse = await fetch(`${baseUrl}/api/diary/today`, {
+    assert.equal(createA.status, 200);
+    const createB = await authenticatedFetch("/api/diary/today", userB.cookie, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        completedTasks: "完成更新测试",
+        completedTasks: "用户 B 私有当日日志 BobTodaySecret",
+        problems: "仅用户 B 可见",
+        nextPlan: "继续隔离验证",
+      }),
+    });
+    assert.equal(createB.status, 200);
+
+    const firstReloadA = await authenticatedFetch("/api/diary/today", userA.cookie).then(
+      (response) => response.json(),
+    );
+    const firstReloadB = await authenticatedFetch("/api/diary/today", userB.cookie).then(
+      (response) => response.json(),
+    );
+    const diaryAId = firstReloadA.diary.id;
+    const diaryBId = firstReloadB.diary.id;
+    assert.notEqual(diaryAId, diaryBId);
+    assert.equal(await prisma.diary.count(), 2);
+    assert.equal((await prisma.diary.findUnique({ where: { id: diaryAId } })).userId, userA.user.id);
+    assert.equal((await prisma.diary.findUnique({ where: { id: diaryBId } })).userId, userB.user.id);
+
+    const updateA = await authenticatedFetch("/api/diary/today", userA.cookie, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        completedTasks: "完成用户 A 更新测试",
         problems: "问题已解决",
         nextPlan: "进入下一阶段 AlphaPlan",
       }),
     });
-    assert.equal(updateResponse.status, 200);
+    assert.equal(updateA.status, 200);
+    const secondReloadA = await authenticatedFetch("/api/diary/today", userA.cookie).then(
+      (response) => response.json(),
+    );
+    assert.equal(secondReloadA.diary.id, diaryAId);
 
-    const secondReload = await fetch(`${baseUrl}/api/diary/today`).then((response) => response.json());
-    assert.equal(secondReload.diary.id, diaryId);
-    assert.equal(secondReload.diary.completedTasks, "完成更新测试");
-    assert.equal(await prisma.diary.count(), 1);
-
-    const today = new Date(`${secondReload.date}T00:00:00.000Z`);
+    const today = new Date(`${secondReloadA.date}T00:00:00.000Z`);
     const previousDay = new Date(today);
     previousDay.setUTCDate(previousDay.getUTCDate() - 1);
     const earlierDay = new Date(today);
     earlierDay.setUTCDate(earlierDay.getUTCDate() - 2);
-
-    const previousDiary = await prisma.diary.create({
+    const previousA = await prisma.diary.create({
       data: {
+        userId: userA.user.id,
         date: previousDay,
-        completedTasks: "完成 YOLO 历史列表页面",
+        completedTasks: "完成 YOLO 用户 A 历史列表页面",
         problems: "需要确认排序",
         nextPlan: "检查详情内容",
         content: "",
       },
     });
-    const earlierDiary = await prisma.diary.create({
+    const earlierA = await prisma.diary.create({
       data: {
+        userId: userA.user.id,
         date: earlierDay,
-        completedTasks: "整理更早的实验记录",
+        completedTasks: "整理用户 A 更早的实验记录",
         problems: "BetaIssue 实验数据待复核",
         nextPlan: "补充实验结论",
         content: "",
       },
     });
+    const privateB = await prisma.diary.create({
+      data: {
+        userId: userB.user.id,
+        date: previousDay,
+        completedTasks: "OnlyBobSecret 私有历史记录",
+        problems: "用户 A 不应看到",
+        nextPlan: "保持隔离",
+        content: "",
+      },
+    });
 
-    const historyResponse = await fetch(`${baseUrl}/api/diary`);
-    assert.equal(historyResponse.status, 200);
-    const history = await historyResponse.json();
+    const historyA = await authenticatedFetch("/api/diary", userA.cookie).then((response) =>
+      response.json(),
+    );
     assert.deepEqual(
-      history.diaries.map((diary) => diary.id),
-      [diaryId, previousDiary.id, earlierDiary.id],
+      historyA.diaries.map((diary) => diary.id),
+      [diaryAId, previousA.id, earlierA.id],
+    );
+    assert.ok(!historyA.diaries.some((diary) => diary.id === diaryBId || diary.id === privateB.id));
+
+    const historyPageA = await authenticatedFetch("/history", userA.cookie);
+    assert.equal(historyPageA.status, 200);
+    const historyHtmlA = await historyPageA.text();
+    assert.match(historyHtmlA, /完成 YOLO 用户 A 历史列表页面/);
+    assert.doesNotMatch(historyHtmlA, /OnlyBobSecret|BobTodaySecret/);
+
+    const ownDetail = await authenticatedFetch(`/diary/${earlierA.id}`, userA.cookie);
+    assert.equal(ownDetail.status, 200);
+    assert.match(await ownDetail.text(), /BetaIssue 实验数据待复核/);
+    assert.equal(
+      (await authenticatedFetch(`/diary/${privateB.id}`, userA.cookie)).status,
+      404,
     );
 
-    const historyPage = await fetch(`${baseUrl}/history`);
-    assert.equal(historyPage.status, 200);
-    const historyHtml = await historyPage.text();
-    assert.match(historyHtml, /完成 YOLO 历史列表页面/);
-    assert.match(historyHtml, new RegExp(`/diary/${previousDiary.id}`));
-
-    const detailPage = await fetch(`${baseUrl}/diary/${earlierDiary.id}`);
-    assert.equal(detailPage.status, 200);
-    const detailHtml = await detailPage.text();
-    assert.match(detailHtml, /整理更早的实验记录/);
-    assert.match(detailHtml, /BetaIssue 实验数据待复核/);
-    assert.match(detailHtml, /补充实验结论/);
-
-    const completedSearch = await fetch(`${baseUrl}/api/diary/search?q=YOLO`).then((response) =>
-      response.json(),
+    const ownSearch = await authenticatedFetch("/api/diary/search?q=YOLO", userA.cookie).then(
+      (response) => response.json(),
     );
-    assert.deepEqual(completedSearch.diaries.map((diary) => diary.id), [previousDiary.id]);
+    assert.deepEqual(ownSearch.diaries.map((diary) => diary.id), [previousA.id]);
+    const privateSearchA = await authenticatedFetch(
+      "/api/diary/search?q=OnlyBobSecret",
+      userA.cookie,
+    ).then((response) => response.json());
+    assert.deepEqual(privateSearchA.diaries, []);
+    const privateSearchB = await authenticatedFetch(
+      "/api/diary/search?q=OnlyBobSecret",
+      userB.cookie,
+    ).then((response) => response.json());
+    assert.deepEqual(privateSearchB.diaries.map((diary) => diary.id), [privateB.id]);
 
-    const problemSearch = await fetch(`${baseUrl}/api/diary/search?q=BetaIssue`).then((response) =>
-      response.json(),
-    );
-    assert.deepEqual(problemSearch.diaries.map((diary) => diary.id), [earlierDiary.id]);
-
-    const planSearch = await fetch(`${baseUrl}/api/diary/search?q=AlphaPlan`).then((response) =>
-      response.json(),
-    );
-    assert.deepEqual(planSearch.diaries.map((diary) => diary.id), [diaryId]);
-
-    const emptySearchResponse = await fetch(`${baseUrl}/api/diary/search?q=not-found`);
-    assert.equal(emptySearchResponse.status, 200);
-    const emptySearch = await emptySearchResponse.json();
-    assert.deepEqual(emptySearch.diaries, []);
-
-    const searchPage = await fetch(`${baseUrl}/search?q=YOLO`);
-    assert.equal(searchPage.status, 200);
-    const searchHtml = await searchPage.text();
-    assert.match(searchHtml, /完成 YOLO 历史列表页面/);
-    assert.match(searchHtml, new RegExp(`/diary/${previousDiary.id}`));
-
-    const emptySearchPage = await fetch(`${baseUrl}/search?q=not-found`);
-    assert.equal(emptySearchPage.status, 200);
-    assert.match(await emptySearchPage.text(), /未找到包含/);
-    assert.equal(await prisma.diary.count(), 3);
+    const searchPageA = await authenticatedFetch("/search?q=OnlyBobSecret", userA.cookie);
+    assert.equal(searchPageA.status, 200);
+    assert.doesNotMatch(await searchPageA.text(), /私有历史记录/);
+    assert.equal(await prisma.diary.count(), 5);
   } finally {
     if (server && server.exitCode === null) {
       server.kill();
-      await Promise.race([once(server, "exit"), new Promise((resolveWait) => setTimeout(resolveWait, 5_000))]);
+      await Promise.race([
+        once(server, "exit"),
+        new Promise((resolveWait) => setTimeout(resolveWait, 5_000)),
+      ]);
     }
     await prisma.$disconnect();
     await removeDatabase(databasePath);

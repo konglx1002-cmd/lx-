@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { getAllDiaries } from "@/features/diary/diary-service";
 import { formatDiaryDate } from "@/features/diary/format";
+import { getCurrentUser } from "@/lib/current-user";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +17,13 @@ function Summary({ label, value }: { label: string; value: string }) {
 }
 
 export default async function HistoryPage() {
-  const diaries = await getAllDiaries();
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const diaries = await getAllDiaries(user.id);
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12 sm:py-16">

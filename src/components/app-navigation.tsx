@@ -2,7 +2,7 @@ import Link from "next/link";
 
 const links = [
   { href: "/diary", label: "今日记录" },
-  { href: "/search", label: "历史记录" },
+  { href: "/history", label: "历史记录" },
 ];
 
 export function AppNavigation() {

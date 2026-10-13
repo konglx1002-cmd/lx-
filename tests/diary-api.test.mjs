@@ -44,7 +44,7 @@ async function removeDatabase(path) {
   }
 }
 
-test("creates, reloads, and updates one diary for today", { timeout: 60_000 }, async () => {
+test("supports today's diary and historical diary views", { timeout: 60_000 }, async () => {
   process.env.DATABASE_URL = databaseUrl;
   const { PrismaClient } = await import("@prisma/client");
   const prisma = new PrismaClient();
@@ -116,6 +116,53 @@ test("creates, reloads, and updates one diary for today", { timeout: 60_000 }, a
     assert.equal(secondReload.diary.id, diaryId);
     assert.equal(secondReload.diary.completedTasks, "完成更新测试");
     assert.equal(await prisma.diary.count(), 1);
+
+    const today = new Date(`${secondReload.date}T00:00:00.000Z`);
+    const previousDay = new Date(today);
+    previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+    const earlierDay = new Date(today);
+    earlierDay.setUTCDate(earlierDay.getUTCDate() - 2);
+
+    const previousDiary = await prisma.diary.create({
+      data: {
+        date: previousDay,
+        completedTasks: "完成历史列表页面",
+        problems: "需要确认排序",
+        nextPlan: "检查详情内容",
+        content: "",
+      },
+    });
+    const earlierDiary = await prisma.diary.create({
+      data: {
+        date: earlierDay,
+        completedTasks: "整理更早的实验记录",
+        problems: "实验数据待复核",
+        nextPlan: "补充实验结论",
+        content: "",
+      },
+    });
+
+    const historyResponse = await fetch(`${baseUrl}/api/diary`);
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.deepEqual(
+      history.diaries.map((diary) => diary.id),
+      [diaryId, previousDiary.id, earlierDiary.id],
+    );
+
+    const historyPage = await fetch(`${baseUrl}/history`);
+    assert.equal(historyPage.status, 200);
+    const historyHtml = await historyPage.text();
+    assert.match(historyHtml, /完成历史列表页面/);
+    assert.match(historyHtml, new RegExp(`/diary/${previousDiary.id}`));
+
+    const detailPage = await fetch(`${baseUrl}/diary/${earlierDiary.id}`);
+    assert.equal(detailPage.status, 200);
+    const detailHtml = await detailPage.text();
+    assert.match(detailHtml, /整理更早的实验记录/);
+    assert.match(detailHtml, /实验数据待复核/);
+    assert.match(detailHtml, /补充实验结论/);
+    assert.equal(await prisma.diary.count(), 3);
   } finally {
     if (server && server.exitCode === null) {
       server.kill();

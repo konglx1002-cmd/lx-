@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
+import { formatDiaryDate } from "@/features/diary/format";
 import type { DiaryData, DiaryInput } from "@/features/diary/types";
 
 const emptyDiary: DiaryInput = {
@@ -11,11 +12,6 @@ const emptyDiary: DiaryInput = {
 };
 
 type PageStatus = "loading" | "idle" | "saving" | "success" | "error";
-
-function formatDate(date: string) {
-  const [year, month, day] = date.split("-");
-  return `${year}年${month}月${day}日`;
-}
 
 export default function DiaryPage() {
   const [date, setDate] = useState("");
@@ -99,7 +95,9 @@ export default function DiaryPage() {
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12 sm:py-16">
       <header>
-        <p className="text-sm font-medium text-slate-500">{date ? formatDate(date) : "今日记录"}</p>
+        <p className="text-sm font-medium text-slate-500">
+          {date ? formatDiaryDate(date) : "今日记录"}
+        </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">今日科研日志</h1>
       </header>
 

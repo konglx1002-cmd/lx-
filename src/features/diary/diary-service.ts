@@ -46,6 +46,19 @@ export async function getTodayDiary() {
   };
 }
 
+export async function getAllDiaries() {
+  const diaries = await prisma.diary.findMany({
+    orderBy: { date: "desc" },
+  });
+
+  return diaries.map(toDiaryData);
+}
+
+export async function getDiaryById(id: string) {
+  const diary = await prisma.diary.findUnique({ where: { id } });
+  return diary ? toDiaryData(diary) : null;
+}
+
 export async function saveTodayDiary(input: DiaryInput) {
   const date = getTodayDateKey();
   const diaryDate = dateKeyToDate(date);

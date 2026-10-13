@@ -92,6 +92,7 @@ test("supports registration, persistent sessions, login, and logout", { timeout:
         "name" TEXT NOT NULL,
         "email" TEXT NOT NULL,
         "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+        "timeZone" TEXT NOT NULL DEFAULT 'Asia/Shanghai',
         "image" TEXT,
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" DATETIME NOT NULL
@@ -171,6 +172,7 @@ test("supports registration, persistent sessions, login, and logout", { timeout:
     const firstSession = await getSession(firstCookie);
     assert.equal(firstSession.user.name, "用户甲");
     assert.equal(firstSession.user.email, "first@example.com");
+    assert.equal(firstSession.user.timeZone, "Asia/Shanghai");
 
     const refreshedSession = await getSession(firstCookie);
     assert.equal(refreshedSession.session.id, firstSession.session.id);
@@ -185,7 +187,16 @@ test("supports registration, persistent sessions, login, and logout", { timeout:
     const secondCookie = cookieFrom(secondRegistration);
     const secondSession = await getSession(secondCookie);
     assert.equal(secondSession.user.name, "用户乙");
+    assert.equal(secondSession.user.timeZone, "Asia/Shanghai");
     assert.notEqual(secondSession.user.id, firstSession.user.id);
+
+    const invalidTimeZoneRegistration = await postAuth("sign-up/email", {
+      name: "非法时区用户",
+      email: "invalid-time-zone@example.com",
+      password: "invalid-time-zone-password",
+      timeZone: "Mars/Olympus_Mons",
+    });
+    assert.equal(invalidTimeZoneRegistration.status, 400);
 
     const signOutResponse = await postAuth("sign-out", {}, firstCookie);
     assert.equal(signOutResponse.status, 200);
@@ -199,6 +210,7 @@ test("supports registration, persistent sessions, login, and logout", { timeout:
     const loginCookie = cookieFrom(loginResponse);
     const loginSession = await getSession(loginCookie);
     assert.equal(loginSession.user.id, firstSession.user.id);
+    assert.equal(loginSession.user.timeZone, "Asia/Shanghai");
 
     const anonymousHome = await fetch(baseUrl).then((response) => response.text());
     assert.match(anonymousHome, /href="\/login"/);

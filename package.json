@@ -9,6 +9,7 @@
     "lint": "eslint src tests",
     "test:diary": "node --test tests/diary-api.test.mjs",
     "test:auth": "node --test tests/auth-api.test.mjs",
+    "test:timezone": "node --test tests/time-zone.test.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev"
   },

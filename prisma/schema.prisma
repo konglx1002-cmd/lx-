@@ -12,6 +12,7 @@ model User {
   name          String
   email         String    @unique
   emailVerified Boolean   @default(false)
+  timeZone      String    @default("Asia/Shanghai")
   image         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

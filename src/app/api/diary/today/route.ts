@@ -31,7 +31,7 @@ export async function GET() {
   }
 
   try {
-    return Response.json(await getTodayDiary(user.id));
+    return Response.json(await getTodayDiary(user.id, user.timeZone));
   } catch {
     return Response.json({ message: "读取日志失败" }, { status: 500 });
   }
@@ -51,7 +51,7 @@ async function save(request: Request) {
       return Response.json({ message: "日志内容格式不正确" }, { status: 400 });
     }
 
-    return Response.json({ diary: await saveTodayDiary(user.id, input) });
+    return Response.json({ diary: await saveTodayDiary(user.id, user.timeZone, input) });
   } catch {
     return Response.json({ message: "保存日志失败" }, { status: 500 });
   }

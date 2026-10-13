@@ -47,11 +47,11 @@ function cookieFrom(response) {
   return setCookie.split(";", 1)[0];
 }
 
-async function register(name, email) {
+async function register(name, email, timeZone) {
   const response = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: baseUrl },
-    body: JSON.stringify({ name, email, password: "test-password" }),
+    body: JSON.stringify({ name, email, password: "test-password", timeZone }),
   });
   assert.equal(response.status, 200, await response.text());
   const cookie = cookieFrom(response);
@@ -75,6 +75,7 @@ async function createSchema(prisma) {
       "name" TEXT NOT NULL,
       "email" TEXT NOT NULL,
       "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+      "timeZone" TEXT NOT NULL DEFAULT 'Asia/Shanghai',
       "image" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL
@@ -178,8 +179,10 @@ test("isolates diary saving, history, details, and search by user", { timeout: 9
     await waitForServer(server, () => output);
     assert.equal((await fetch(`${baseUrl}/api/diary/today`)).status, 401);
 
-    const userA = await register("用户 A", "user-a@example.com");
-    const userB = await register("用户 B", "user-b@example.com");
+    const userA = await register("用户 A", "user-a@example.com", "Asia/Shanghai");
+    const userB = await register("用户 B", "user-b@example.com", "Asia/Tokyo");
+    assert.equal(userA.user.timeZone, "Asia/Shanghai");
+    assert.equal(userB.user.timeZone, "Asia/Tokyo");
     const initialA = await authenticatedFetch("/api/diary/today", userA.cookie).then((response) =>
       response.json(),
     );

@@ -1,22 +1,9 @@
 import type { Diary } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { getTodayDateKey } from "@/lib/time-zone";
 
 import type { DiaryData, DiaryInput } from "./types";
-
-const DIARY_TIME_ZONE = "Asia/Shanghai";
-
-export function getTodayDateKey(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone: DIARY_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
 
 function dateKeyToDate(dateKey: string) {
   return new Date(`${dateKey}T00:00:00.000Z`);
@@ -34,8 +21,8 @@ function toDiaryData(diary: Diary): DiaryData {
   };
 }
 
-export async function getTodayDiary(userId: string) {
-  const date = getTodayDateKey();
+export async function getTodayDiary(userId: string, timeZone: string) {
+  const date = getTodayDateKey(timeZone);
   const diary = await prisma.diary.findUnique({
     where: {
       userId_date: {
@@ -87,8 +74,8 @@ export async function searchDiaries(userId: string, query: string) {
   return diaries.map(toDiaryData);
 }
 
-export async function saveTodayDiary(userId: string, input: DiaryInput) {
-  const date = getTodayDateKey();
+export async function saveTodayDiary(userId: string, timeZone: string, input: DiaryInput) {
+  const date = getTodayDateKey(timeZone);
   const diaryDate = dateKeyToDate(date);
   const diary = await prisma.diary.upsert({
     where: {

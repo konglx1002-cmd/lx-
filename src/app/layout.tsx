@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+
+import { AuthNavigation } from "@/components/auth-navigation";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +15,12 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <Suspense fallback={<div className="h-[73px] border-b border-slate-200 bg-white" />}>
+          <AuthNavigation />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }

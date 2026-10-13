@@ -8,11 +8,14 @@
     "start": "next start",
     "lint": "eslint src tests",
     "test:diary": "node --test tests/diary-api.test.mjs",
+    "test:auth": "node --test tests/auth-api.test.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@better-auth/prisma-adapter": "^1.7.7",
     "@prisma/client": "^6.19.0",
+    "better-auth": "^1.7.7",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

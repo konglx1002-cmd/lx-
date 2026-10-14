@@ -29,6 +29,8 @@ Verification 独立保存认证验证数据
 
 `User` 与 `Session`、`Account`、`Diary` 都是一对多关系。
 
+用户设置 API 只允许当前 Session 用户修改自己的 `name` 和 `timeZone`。`email` 当前只读，不提供修改入口；设置更新不会接受客户端指定的 `userId`。
+
 ### 2.2 Diary
 
 | 字段 | 类型 | 约束或用途 |
@@ -69,6 +71,8 @@ Diary 日期由用户时区计算成 `YYYY-MM-DD`，再以对应 UTC 零点的 `
 6. 历史列表和搜索同样使用 `where: { userId }`，搜索条件位于该用户范围之内。
 
 因此，客户端即使额外发送 `userId`，也不会改变数据归属或扩大查询范围。
+
+用户设置使用相同的隔离原则：服务端从 Session 获取 `User.id`，并只以该主键更新用户记录。请求体如果包含 `userId` 会直接返回 `400`。
 
 ## 4. 已完成迁移
 

@@ -35,7 +35,9 @@ export async function AuthNavigation() {
 
         {user ? (
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-700">{user.name}</span>
+            <Link className="text-sm text-slate-700 hover:text-slate-950" href="/settings">
+              {user.name}
+            </Link>
             <LogoutButton />
           </div>
         ) : (

@@ -71,7 +71,7 @@ async function getSession(cookie) {
   return response.json();
 }
 
-test("supports registration, persistent sessions, login, and logout", { timeout: 90_000 }, async () => {
+test("supports authentication and isolated user settings", { timeout: 90_000 }, async () => {
   const env = {
     ...process.env,
     DATABASE_URL: databaseUrl,
@@ -139,12 +139,29 @@ test("supports registration, persistent sessions, login, and logout", { timeout:
         "updatedAt" DATETIME NOT NULL
       )
     `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE "Diary" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "userId" TEXT NOT NULL,
+        "date" DATETIME NOT NULL,
+        "completedTasks" TEXT NOT NULL,
+        "problems" TEXT NOT NULL,
+        "nextPlan" TEXT NOT NULL,
+        "content" TEXT NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL,
+        CONSTRAINT "Diary_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )
+    `);
     await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX "User_email_key" ON "User"("email")');
     await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX "Session_token_key" ON "Session"("token")');
     await prisma.$executeRawUnsafe('CREATE INDEX "Session_userId_idx" ON "Session"("userId")');
     await prisma.$executeRawUnsafe('CREATE INDEX "Account_userId_idx" ON "Account"("userId")');
     await prisma.$executeRawUnsafe(
       'CREATE INDEX "Verification_identifier_idx" ON "Verification"("identifier")',
+    );
+    await prisma.$executeRawUnsafe(
+      'CREATE UNIQUE INDEX "Diary_userId_date_key" ON "Diary"("userId", "date")',
     );
 
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-p", "3101"], {
@@ -198,6 +215,104 @@ test("supports registration, persistent sessions, login, and logout", { timeout:
     });
     assert.equal(invalidTimeZoneRegistration.status, 400);
 
+    const anonymousSettingsApi = await fetch(`${baseUrl}/api/settings`);
+    assert.equal(anonymousSettingsApi.status, 401);
+    const anonymousSettingsPage = await fetch(`${baseUrl}/settings`, { redirect: "manual" });
+    assert.equal(anonymousSettingsPage.status, 307);
+    assert.equal(
+      new URL(anonymousSettingsPage.headers.get("location"), baseUrl).pathname,
+      "/login",
+    );
+
+    const initialSettingsResponse = await fetch(`${baseUrl}/api/settings`, {
+      headers: { Cookie: firstCookie },
+    });
+    assert.equal(initialSettingsResponse.status, 200);
+    assert.deepEqual((await initialSettingsResponse.json()).settings, {
+      name: "用户甲",
+      email: "first@example.com",
+      timeZone: "Asia/Shanghai",
+    });
+
+    const updateSettingsResponse = await fetch(`${baseUrl}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: firstCookie },
+      body: JSON.stringify({ name: "用户甲已更新", timeZone: "Asia/Tokyo" }),
+    });
+    const updateSettingsResult = await updateSettingsResponse.json();
+    assert.equal(updateSettingsResponse.status, 200, JSON.stringify(updateSettingsResult));
+    assert.deepEqual(updateSettingsResult.settings, {
+      name: "用户甲已更新",
+      email: "first@example.com",
+      timeZone: "Asia/Tokyo",
+    });
+
+    const emptyNameResponse = await fetch(`${baseUrl}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: firstCookie },
+      body: JSON.stringify({ name: "   " }),
+    });
+    assert.equal(emptyNameResponse.status, 400);
+
+    const emailUpdateResponse = await fetch(`${baseUrl}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: firstCookie },
+      body: JSON.stringify({ email: "changed@example.com" }),
+    });
+    assert.equal(emailUpdateResponse.status, 400);
+
+    const invalidSettingsResponse = await fetch(`${baseUrl}/api/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Cookie: firstCookie },
+      body: JSON.stringify({ timeZone: "Mars/Olympus_Mons" }),
+    });
+    assert.equal(invalidSettingsResponse.status, 400);
+
+    const crossUserUpdate = await fetch(`${baseUrl}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: secondCookie },
+      body: JSON.stringify({
+        userId: firstSession.user.id,
+        name: "用户乙试图修改甲",
+        timeZone: "Asia/Shanghai",
+      }),
+    });
+    assert.equal(crossUserUpdate.status, 400);
+
+    const storedFirstUser = await prisma.user.findUniqueOrThrow({
+      where: { id: firstSession.user.id },
+    });
+    const storedSecondUser = await prisma.user.findUniqueOrThrow({
+      where: { id: secondSession.user.id },
+    });
+    assert.equal(storedFirstUser.name, "用户甲已更新");
+    assert.equal(storedFirstUser.timeZone, "Asia/Tokyo");
+    assert.equal(storedSecondUser.name, "用户乙");
+    assert.equal(storedSecondUser.timeZone, "Asia/Shanghai");
+
+    const todayResponse = await fetch(`${baseUrl}/api/diary/today`, {
+      headers: { Cookie: firstCookie },
+    });
+    assert.equal(todayResponse.status, 200);
+    const todayResult = await todayResponse.json();
+    const todayParts = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const todayValues = Object.fromEntries(todayParts.map((part) => [part.type, part.value]));
+    assert.equal(todayResult.date, `${todayValues.year}-${todayValues.month}-${todayValues.day}`);
+
+    const settingsPage = await fetch(`${baseUrl}/settings`, {
+      headers: { Cookie: firstCookie },
+    });
+    assert.equal(settingsPage.status, 200);
+    const settingsHtml = await settingsPage.text();
+    assert.match(settingsHtml, /用户甲已更新/);
+    assert.match(settingsHtml, /first@example\.com/);
+    assert.match(settingsHtml, /Asia\/Tokyo/);
+
     const signOutResponse = await postAuth("sign-out", {}, firstCookie);
     assert.equal(signOutResponse.status, 200);
     assert.equal(await getSession(firstCookie), null);
@@ -210,14 +325,16 @@ test("supports registration, persistent sessions, login, and logout", { timeout:
     const loginCookie = cookieFrom(loginResponse);
     const loginSession = await getSession(loginCookie);
     assert.equal(loginSession.user.id, firstSession.user.id);
-    assert.equal(loginSession.user.timeZone, "Asia/Shanghai");
+    assert.equal(loginSession.user.name, "用户甲已更新");
+    assert.equal(loginSession.user.timeZone, "Asia/Tokyo");
 
     const anonymousHome = await fetch(baseUrl).then((response) => response.text());
     assert.match(anonymousHome, /href="\/login"/);
     const authenticatedHome = await fetch(baseUrl, {
       headers: { Cookie: loginCookie },
     }).then((response) => response.text());
-    assert.match(authenticatedHome, /用户甲/);
+    assert.match(authenticatedHome, /href="\/settings"/);
+    assert.match(authenticatedHome, /用户甲已更新/);
 
     assert.equal(await prisma.user.count(), 2);
     assert.ok((await prisma.session.count()) >= 1);

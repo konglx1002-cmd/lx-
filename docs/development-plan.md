@@ -55,11 +55,18 @@
 - 认证、Session、用户设置、Diary CRUD、Dashboard、搜索和时区逻辑在本地 PostgreSQL 上验证。
 - 尚未部署云端资源，也没有迁移生产数据。
 
+### Phase 2：SQLite → PostgreSQL 数据迁移演练（已完成）
+
+- 增加 SQLite 只读导出、空 PostgreSQL 导入和独立一致性校验工具。
+- 迁移 `User`、`Account`、`Diary`，完整保留 ID、关联、日期、正文、密码哈希和用户时区。
+- 不迁移 `Session` 与 `Verification`，迁移后由用户重新登录建立 Session。
+- 使用双用户数据验证登录、Diary 隔离、Dashboard、搜索、历史和时区。
+- 本阶段只完成本地 staging 等价演练，没有部署或迁移 production 数据。
+
 ### 后续 Phase（未实现）
 
-1. 数据迁移演练：在 staging 迁移 SQLite 数据并验证数量、ID、内容、关联和用户隔离。
-2. 云端基础设施：配置托管 PostgreSQL、连接池、密钥、正式域名、备份和监控。
-3. Production 切换：短暂停写、最终迁移、自动校验、部署和观察。
+1. 云端基础设施：配置托管 PostgreSQL、连接池、密钥、正式域名、备份和监控。
+2. Production 切换：短暂停写、最终迁移、自动校验、部署和观察。
 
 各 Phase 独立实施。Phase 0 不修改数据库结构，也不创建 PostgreSQL migration。
 

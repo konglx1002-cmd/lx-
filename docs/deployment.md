@@ -1,6 +1,6 @@
 # 部署指南
 
-本文记录 v2.2 云端化的部署流程。Phase 1 已完成 PostgreSQL Schema、Better Auth Adapter、migration 历史和本地集成测试适配，但尚未部署云端资源，也没有迁移生产数据。
+本文记录 v2.2 云端化的部署流程。Phase 2 已完成 SQLite 到 PostgreSQL 的可重复迁移工具和本地 staging 等价演练，但尚未部署云端资源，也没有迁移生产数据。
 
 ## 1. 版本要求
 
@@ -56,7 +56,7 @@ pnpm --version
 
 ## 3. Staging 流程
 
-Phase 1 不执行实际 staging 部署。后续 staging 应按以下顺序进行：
+Phase 2 只完成本地 staging 等价演练，不执行实际云端 staging 部署。后续 staging 应按以下顺序进行：
 
 1. 创建与 production 隔离的应用、数据库、域名和 Better Auth 密钥。
 2. 根据 `.env.production.example` 在部署平台设置环境变量，不上传 `.env` 文件。
@@ -64,7 +64,7 @@ Phase 1 不执行实际 staging 部署。后续 staging 应按以下顺序进行
 4. 对 staging 数据库运行 `pnpm db:migrate:deploy`。
 5. 运行 lint、全部测试和生产构建。
 6. 部署 Next.js，并验证注册、登录、Session、设置、Dashboard、Diary 隔离、搜索和时区边界。
-7. 使用模拟数据完成 SQLite 到 PostgreSQL 的迁移演练及一致性校验；该步骤尚未实施。
+7. 按“SQLite → PostgreSQL 迁移演练”执行导出、导入和自动校验，再完成双用户业务冒烟测试。
 
 Staging 不得复用 production 数据库、密钥或正式用户数据。
 
@@ -104,3 +104,67 @@ PostgreSQL 适配及迁移演练完成后，production 发布顺序应为：
 - 校验至少包括表数量、ID 集合、逐用户 Diary 数量、`(userId, date)` 唯一性、外键完整性和关键内容摘要。
 - 在 staging 至少完成一次可重复的全量迁移演练，再安排 production 切换。
 - PostgreSQL 开始接受新写入后，不能仅靠切换应用版本回滚到 SQLite；应在开放写入前完成最终验证。
+
+## 7. SQLite → PostgreSQL 迁移演练
+
+Phase 2 提供三个独立命令：
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm migration:export:sqlite` | 从 SQLite 只读导出 `User`、`Account`、`Diary` |
+| `pnpm migration:import:postgres` | 在单个事务中导入空的 PostgreSQL 目标库 |
+| `pnpm migration:verify` | 逐项比较导出快照与 PostgreSQL 数据 |
+
+默认读取 `prisma/dev.db`，默认快照写入 `migration-data/sqlite-export.json`。可通过 `SQLITE_DATABASE_PATH` 和 `MIGRATION_EXPORT_PATH` 指定演练文件。导入和校验优先使用 `DIRECT_URL`，没有设置时使用 `DATABASE_URL`；这两个命令必须使用 PostgreSQL 直连 URL。
+
+迁移快照包含邮箱、密码哈希以及可能存在的 Account 令牌，属于敏感文件。`migration-data/` 已被 Git 忽略，但演练时仍应放在受控临时目录，限制访问，并在校验完成后安全删除。不得上传到制品仓库或日志系统。
+
+### 演练步骤
+
+1. 暂停源 SQLite 的写入，复制数据库文件，并记录副本的校验和。所有导出操作针对副本执行，不直接操作运行中的文件。
+2. 创建全新的 staging PostgreSQL 数据库或 Schema，设置 `DATABASE_URL` 和 `DIRECT_URL`，然后执行：
+
+   ```bash
+   pnpm db:migrate:deploy
+   ```
+
+3. 指向 SQLite 副本并导出：
+
+   ```bash
+   SQLITE_DATABASE_PATH=/secure/path/source.db \
+   MIGRATION_EXPORT_PATH=/secure/path/sqlite-export.json \
+   pnpm migration:export:sqlite
+   ```
+
+4. 保持相同 `MIGRATION_EXPORT_PATH`，指向 staging PostgreSQL 直连地址并导入：
+
+   ```bash
+   DIRECT_URL=postgresql://... \
+   MIGRATION_EXPORT_PATH=/secure/path/sqlite-export.json \
+   pnpm migration:import:postgres
+   ```
+
+   导入器要求 `User`、`Account`、`Diary`、`Session`、`Verification` 全部为空；任一表已有数据都会停止。`User.id`、`Account.id` 和 `Diary.id` 按原值写入，不重新生成。
+
+5. 使用同一快照和 PostgreSQL 地址执行：
+
+   ```bash
+   DIRECT_URL=postgresql://... \
+   MIGRATION_EXPORT_PATH=/secure/path/sqlite-export.json \
+   pnpm migration:verify
+   ```
+
+6. 只有校验返回 `verified: true` 后，才启动 staging 应用。用至少两个已迁移账号验证登录、Session 新建、Diary 隔离、Dashboard、搜索、历史和用户时区。
+7. 删除迁移快照，并保留不含凭据的数量、校验结论、演练时间和版本记录。
+
+### 自动校验范围
+
+- `User`、`Account`、`Diary` 数量及完整 ID 集合。
+- `Diary.userId` 关系、日期、三个结构化内容字段、完整正文和时间戳。
+- 用户名、邮箱、邮箱验证状态、头像、`timeZone` 和时间戳。
+- Account 与 User 的关系、凭据哈希和现有可空字段。
+- PostgreSQL 中 `Session` 与 `Verification` 保持为空。
+
+`Session` 和 `Verification` 不进入快照，也不导入 PostgreSQL。迁移后的首次访问要求用户重新登录，新 Session 由 Better Auth 在 PostgreSQL 中创建。
+
+若导入或校验失败，不在目标库上手工修补数据。删除本次 staging 数据库或 Schema，修复原因后从 migration deploy 和导入步骤重新开始。Phase 2 的本地演练不代表 production 已迁移，也不授权生产切换。

@@ -93,6 +93,24 @@ test("provides a production environment template without real credentials", asyn
   assert.match(template, /https:\/\/your-domain\.example\.com/);
 });
 
+test("provides an isolated local PostgreSQL Compose environment", async () => {
+  const compose = await readFile("docker-compose.yml", "utf8");
+  const localEnvironment = await readFile(".env.local.example", "utf8");
+  const gitignore = await readFile(".gitignore", "utf8");
+
+  assert.match(compose, /^\s{2}scientific-log-postgres:/m);
+  assert.match(compose, /image: postgres:17-alpine/);
+  assert.match(compose, /"5433:5432"/);
+  assert.match(compose, /POSTGRES_USER: scientific_log/);
+  assert.match(compose, /POSTGRES_PASSWORD: scientific_log_password/);
+  assert.match(compose, /POSTGRES_DB: scientific_growth_log/);
+  assert.match(compose, /pg_isready -U scientific_log -d scientific_growth_log/);
+
+  assert.match(localEnvironment, /^DATABASE_URL=.*localhost:5433/m);
+  assert.match(localEnvironment, /^DIRECT_URL=.*localhost:5433/m);
+  assert.match(gitignore, /^!\.env\.local\.example$/m);
+});
+
 test("uses a PostgreSQL schema and a PostgreSQL-only migration history", async () => {
   const schema = await readFile("prisma/schema.prisma", "utf8");
   const migrationLock = await readFile("prisma/migrations/migration_lock.toml", "utf8");

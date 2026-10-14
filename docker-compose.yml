@@ -1,0 +1,20 @@
+services:
+  scientific-log-postgres:
+    image: postgres:17-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: scientific_log
+      POSTGRES_PASSWORD: scientific_log_password
+      POSTGRES_DB: scientific_growth_log
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scientific_log -d scientific_growth_log"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - scientific-log-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  scientific-log-postgres-data:

@@ -8,6 +8,7 @@
 # local environment files
 .env*
 !.env.example
+!.env.local.example
 !.env.production.example
 
 # SQLite database files

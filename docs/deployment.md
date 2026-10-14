@@ -117,7 +117,53 @@ PostgreSQL 适配及迁移演练完成后，production 发布顺序应为：
 - 执行 `pnpm lint`、`pnpm test:deploy` 和 `pnpm build`，任一失败都停止部署。
 - 部署后先验证 `GET /api/health`，再执行认证、Session、时区和 Diary 用户隔离冒烟测试。
 
-## 7. 数据迁移注意事项
+完成 staging migration 后，可以在注入四个部署环境变量的受控终端中运行：
+
+```bash
+pnpm check:deployment
+```
+
+该命令只检查必需变量是否存在、Prisma Client 是否已生成，以及数据库 migration 是否全部应用。它不会执行 migration，也不会输出环境变量值或 Prisma 连接信息。检查失败时应先修复连接或运行人工 migration workflow，不能绕过检查直接部署。
+
+## 7. GitHub Actions
+
+### CI
+
+`.github/workflows/ci.yml` 在每次 `push` 和 `pull_request` 时自动执行。流程固定使用 Node.js 24.x、pnpm 10.34.6 和临时 PostgreSQL 16 service container，依次运行：
+
+1. `pnpm install --frozen-lockfile`
+2. `pnpm exec prisma generate`
+3. `pnpm lint`
+4. `pnpm test:deploy`
+5. `pnpm build`
+
+CI 数据库只存在于当前 GitHub Actions Job，不连接 staging 或 production。工作流内的 Better Auth 配置同样是一次性的测试值，不是部署 Secret。
+
+### 人工 migration 发布
+
+`.github/workflows/migrate.yml` 只支持在 GitHub Actions 页面通过 `workflow_dispatch` 人工触发，并固定使用名为 `staging` 的 GitHub Environment。创建云资源后，需要在该 Environment 中配置：
+
+- `DATABASE_URL`：staging 应用使用的 PostgreSQL 连接池地址。
+- `DIRECT_URL`：staging migration 使用的 PostgreSQL 直连地址。
+
+工作流不会把密钥写入仓库文件。它先验证 Prisma Schema、展示部署前 migration 状态，再执行 `prisma migrate deploy`，最后要求 migration 状态正常。由于存在待应用 migration 时 `prisma migrate status` 可能返回非零退出码，部署前状态步骤允许继续；`migrate deploy` 或最终状态检查失败仍会使整个 Job 失败。
+
+同一时间只允许一个 staging migration Job 运行，且新触发的 Job 不会取消正在执行的 migration。首次启用时，建议为 `staging` Environment 增加 required reviewer，避免误触发。不要把 production 数据库 Secret 配置到这个 Environment。
+
+## 8. Vercel 部署流程
+
+首次 staging 部署按以下顺序进行：
+
+1. CI 在目标 commit 上全部通过。
+2. 在 GitHub `staging` Environment 配置两条数据库 Secret。
+3. 人工运行 `Staging Database Migration` workflow，并确认最终 migration 状态检查通过。
+4. 在安全环境中注入 `DATABASE_URL`、`DIRECT_URL`、`BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`，运行 `pnpm check:deployment`。
+5. 由 Vercel 部署同一个 commit。依赖安装阶段会通过 `postinstall` 自动生成 Prisma Client；Vercel Build 只运行 `pnpm build`，不执行 migration。
+6. 部署成功后先检查 `GET /api/health`，再验证注册、登录、Session、用户设置、时区、Dashboard、Diary 隔离、历史和搜索。
+
+Vercel staging 项目仍需单独配置四个环境变量。GitHub Environment Secret 不会自动同步到 Vercel，两个平台必须分别维护，但值应指向同一套 staging 资源。应用部署失败时不得回滚数据库 migration；应修复或回滚应用，数据库变更必须通过新的前向 migration 处理。
+
+## 9. 数据迁移注意事项
 
 - 当前生效历史位于 `prisma/migrations`，只包含 PostgreSQL migration。
 - 原 SQLite SQL 原样归档在 `prisma/migrations-sqlite-legacy`，不得对 PostgreSQL 执行。
@@ -129,7 +175,7 @@ PostgreSQL 适配及迁移演练完成后，production 发布顺序应为：
 - 在 staging 至少完成一次可重复的全量迁移演练，再安排 production 切换。
 - PostgreSQL 开始接受新写入后，不能仅靠切换应用版本回滚到 SQLite；应在开放写入前完成最终验证。
 
-## 8. SQLite → PostgreSQL 迁移演练
+## 10. SQLite → PostgreSQL 迁移演练
 
 Phase 2 提供三个独立命令：
 

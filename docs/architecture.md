@@ -94,3 +94,16 @@ Dashboard 同样只通过 `diary-service` 获取数据：今日状态使用 `get
 
 当前架构通过 Prisma 隔离数据库访问，便于未来替换数据库。但 SQLite 文件不适合作为多实例云服务的共享数据库。云端部署前需要单独完成 PostgreSQL Schema、数据迁移、备份恢复和生产环境密钥配置；这些能力目前尚未实现。
 
+## 7. v2.2 云端化架构计划
+
+Phase 0 已完成部署工程准备，但没有改变运行时数据库和业务逻辑：
+
+- 使用 `.nvmrc` 和 `packageManager` 固定 Node.js 与 pnpm 版本。
+- 使用 `.env.production.example` 定义未来云端环境变量接口，不保存真实密钥。
+- 明确区分本地开发迁移 `db:migrate:dev` 与生产迁移 `db:migrate:deploy`。
+- 建立本地、staging 和 production 的部署流程文档。
+
+后续目标架构为 Next.js Node.js 应用、托管 PostgreSQL 和 Better Auth。应用流量使用 PostgreSQL 连接池地址，发布流水线通过数据库直连地址执行已经提交的 migration。Better Auth 仍由 Next.js 提供接口并通过 Prisma 保存用户、账户和 Session，不引入独立认证服务。
+
+当前 Prisma datasource、Better Auth Adapter、SQLite migration 和实际数据仍全部保持不变。PostgreSQL Schema、数据迁移工具、托管资源和上线流水线属于后续 Phase，不是 Phase 0 已完成功能。
+

@@ -2,16 +2,20 @@
   "name": "scientific-growth-log",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint src tests",
     "test:diary": "node --test tests/diary-api.test.mjs",
     "test:auth": "node --test tests/auth-api.test.mjs",
     "test:timezone": "node --test tests/time-zone.test.mjs",
+    "test:deployment": "node --test tests/deployment-config.test.mjs",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "pnpm db:migrate:dev",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "^1.7.7",

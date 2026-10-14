@@ -174,3 +174,12 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 | 历史读取失败 | 500 | `读取历史日志失败` |
 | 搜索失败 | 500 | `搜索日志失败` |
 
+## 9. Dashboard 数据访问
+
+Dashboard 没有新增公开 JSON API。登录后的 `/` 是服务端页面，从 Better Auth Session 获取当前用户，并通过 `diary-service` 调用：
+
+- `getTodayDiary(user.id, user.timeZone)`：返回用户时区下的今日日期和今日 Diary 状态。
+- `getRecentDiaries(user.id)`：只查询当前用户，按日期倒序返回最多 3 篇 Diary。
+
+未登录访问 `/` 时不会执行个人 Diary 查询，只展示产品介绍以及登录、注册入口。
+

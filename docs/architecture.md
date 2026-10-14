@@ -10,8 +10,10 @@
 - 基于邮箱和密码的注册、登录、退出及 Session 持久化。
 - 用户级 Diary 数据隔离。
 - 按用户时区判断“今天”，默认时区为 `Asia/Shanghai`。
+- 用户个人设置页面，可修改用户名和时区。
+- 登录后的基础 Dashboard，包括今日状态、最近 3 篇日志和快捷入口。
 
-当前没有设置页面、Dashboard、标签、项目管理、统计图表、AI 功能或 PostgreSQL 部署。
+当前没有标签、项目管理、统计图表、AI 功能或 PostgreSQL 部署。
 
 ## 2. 技术栈
 
@@ -35,6 +37,7 @@ src/
     diary/                     今日记录和详情页面
     history/                   历史列表页面
     search/                    搜索页面
+    settings/                  用户个人设置页面
     login/、register/          认证页面
   components/                  导航与认证表单组件
   features/diary/              Diary 服务、类型和格式化逻辑
@@ -68,6 +71,8 @@ tests/                         认证、Diary 隔离和时区测试
 
 `diary-service` 是当前 Diary 数据访问边界。历史、搜索、详情和今日记录的查询都要求传入服务端获得的 `userId`。客户端请求体中的 `userId` 不参与权限判断或数据写入。
 
+Dashboard 同样只通过 `diary-service` 获取数据：今日状态使用 `getTodayDiary(user.id, user.timeZone)`，最近日志使用 `getRecentDiaries(user.id)`，后者在用户条件内按日期倒序取 3 条。首页不直接访问 Prisma。
+
 ### 4.3 今日日期
 
 当前用户的 `timeZone` 保存在 `User` 中，并随 Session 用户数据返回。今日记录接口把 Session 中的 `user.id` 和 `user.timeZone` 一起传给 Diary 服务。服务使用 `Intl.DateTimeFormat` 将当前时间转换成该时区的 `YYYY-MM-DD` 日期键，再查询或写入当日日志。
@@ -76,13 +81,14 @@ tests/                         认证、Diary 隔离和时区测试
 
 | 页面 | 当前行为 |
 | --- | --- |
-| `/` | 公共首页，展示主要入口 |
+| `/` | 未登录展示产品介绍和登录/注册入口；登录后展示当前用户 Dashboard |
 | `/login` | 邮箱密码登录 |
 | `/register` | 用户名、邮箱和密码注册 |
 | `/diary` | 通过今日 Diary API 加载和保存记录；未登录请求会得到 401 |
 | `/history` | 服务端获取当前用户；未登录重定向到 `/login` |
 | `/search` | 服务端获取当前用户；未登录重定向到 `/login` |
 | `/diary/[id]` | 仅查询当前用户的 Diary；他人 Diary 或不存在的 ID 返回 404 |
+| `/settings` | 展示当前用户资料，可修改用户名和时区；未登录重定向到 `/login` |
 
 ## 6. 云端演进边界
 

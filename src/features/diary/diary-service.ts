@@ -47,6 +47,16 @@ export async function getAllDiaries(userId: string) {
   return diaries.map(toDiaryData);
 }
 
+export async function getRecentDiaries(userId: string) {
+  const diaries = await prisma.diary.findMany({
+    where: { userId },
+    orderBy: { date: "desc" },
+    take: 3,
+  });
+
+  return diaries.map(toDiaryData);
+}
+
 export async function getDiaryById(userId: string, id: string) {
   const diary = await prisma.diary.findFirst({ where: { id, userId } });
   return diary ? toDiaryData(diary) : null;

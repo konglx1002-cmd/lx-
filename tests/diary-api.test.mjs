@@ -148,7 +148,7 @@ async function createSchema(prisma) {
   );
 }
 
-test("isolates diary saving, history, details, and search by user", { timeout: 90_000 }, async () => {
+test("isolates dashboard, diary saving, history, details, and search by user", { timeout: 90_000 }, async () => {
   const env = {
     ...process.env,
     DATABASE_URL: databaseUrl,
@@ -178,6 +178,13 @@ test("isolates diary saving, history, details, and search by user", { timeout: 9
 
     await waitForServer(server, () => output);
     assert.equal((await fetch(`${baseUrl}/api/diary/today`)).status, 401);
+    const anonymousHome = await fetch(baseUrl);
+    assert.equal(anonymousHome.status, 200);
+    const anonymousHomeHtml = await anonymousHome.text();
+    assert.match(anonymousHomeHtml, /科研成长日志/);
+    assert.match(anonymousHomeHtml, /href="\/login"/);
+    assert.match(anonymousHomeHtml, /href="\/register"/);
+    assert.doesNotMatch(anonymousHomeHtml, /科研日志工作台/);
 
     const userA = await register("用户 A", "user-a@example.com", "Asia/Shanghai");
     const userB = await register("用户 B", "user-b@example.com", "Asia/Tokyo");
@@ -191,6 +198,15 @@ test("isolates diary saving, history, details, and search by user", { timeout: 9
     );
     assert.equal(initialA.diary, null);
     assert.equal(initialB.diary, null);
+
+    const emptyDashboardA = await authenticatedFetch("/", userA.cookie).then((response) =>
+      response.text(),
+    );
+    assert.match(emptyDashboardA, /你好，(?:<!-- -->)?用户 A/);
+    assert.match(emptyDashboardA, /还没有记录今天的日志/);
+    assert.match(emptyDashboardA, /开始你的第一篇科研日志/);
+    assert.match(emptyDashboardA, /记录今天/);
+    assert.match(emptyDashboardA, new RegExp(`dateTime="${initialA.date}"`));
 
     const createA = await authenticatedFetch("/api/diary/today", userA.cookie, {
       method: "PUT",
@@ -247,6 +263,8 @@ test("isolates diary saving, history, details, and search by user", { timeout: 9
     previousDay.setUTCDate(previousDay.getUTCDate() - 1);
     const earlierDay = new Date(today);
     earlierDay.setUTCDate(earlierDay.getUTCDate() - 2);
+    const oldestDay = new Date(today);
+    oldestDay.setUTCDate(oldestDay.getUTCDate() - 3);
     const previousA = await prisma.diary.create({
       data: {
         userId: userA.user.id,
@@ -267,6 +285,16 @@ test("isolates diary saving, history, details, and search by user", { timeout: 9
         content: "",
       },
     });
+    const oldestA = await prisma.diary.create({
+      data: {
+        userId: userA.user.id,
+        date: oldestDay,
+        completedTasks: "用户 A 第四篇旧日志 ShouldNotBeRecent",
+        problems: "仅用于验证最近三篇",
+        nextPlan: "不应出现在 Dashboard",
+        content: "",
+      },
+    });
     const privateB = await prisma.diary.create({
       data: {
         userId: userB.user.id,
@@ -283,9 +311,30 @@ test("isolates diary saving, history, details, and search by user", { timeout: 9
     );
     assert.deepEqual(
       historyA.diaries.map((diary) => diary.id),
-      [diaryAId, previousA.id, earlierA.id],
+      [diaryAId, previousA.id, earlierA.id, oldestA.id],
     );
     assert.ok(!historyA.diaries.some((diary) => diary.id === diaryBId || diary.id === privateB.id));
+
+    const dashboardA = await authenticatedFetch("/", userA.cookie).then((response) =>
+      response.text(),
+    );
+    assert.match(dashboardA, /你好，(?:<!-- -->)?用户 A/);
+    assert.match(dashboardA, /今天已经完成日志/);
+    assert.match(dashboardA, /继续编辑今天日志/);
+    assert.match(dashboardA, new RegExp(`dateTime="${secondReloadA.date}"`));
+    assert.match(dashboardA, new RegExp(`href="/diary/${diaryAId}"`));
+    assert.match(dashboardA, /完成 YOLO 用户 A 历史列表页面/);
+    assert.match(dashboardA, /整理用户 A 更早的实验记录/);
+    assert.doesNotMatch(dashboardA, /ShouldNotBeRecent|OnlyBobSecret|BobTodaySecret/);
+
+    const dashboardB = await authenticatedFetch("/", userB.cookie).then((response) =>
+      response.text(),
+    );
+    assert.match(dashboardB, /你好，(?:<!-- -->)?用户 B/);
+    assert.match(dashboardB, new RegExp(`dateTime="${initialB.date}"`));
+    assert.match(dashboardB, /BobTodaySecret/);
+    assert.match(dashboardB, /OnlyBobSecret/);
+    assert.doesNotMatch(dashboardB, /AlphaPlan|ShouldNotBeRecent|YOLO/);
 
     const historyPageA = await authenticatedFetch("/history", userA.cookie);
     assert.equal(historyPageA.status, 200);
@@ -319,7 +368,7 @@ test("isolates diary saving, history, details, and search by user", { timeout: 9
     const searchPageA = await authenticatedFetch("/search?q=OnlyBobSecret", userA.cookie);
     assert.equal(searchPageA.status, 200);
     assert.doesNotMatch(await searchPageA.text(), /私有历史记录/);
-    assert.equal(await prisma.diary.count(), 5);
+    assert.equal(await prisma.diary.count(), 6);
   } finally {
     if (server && server.exitCode === null) {
       server.kill();

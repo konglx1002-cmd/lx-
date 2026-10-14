@@ -5,10 +5,14 @@ import test from "node:test";
 test("pins the runtime and separates development and production migrations", async () => {
   const nodeVersion = (await readFile(".nvmrc", "utf8")).trim();
   const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+  const pnpmLock = await readFile("pnpm-lock.yaml", "utf8");
 
   assert.match(nodeVersion, /^\d+\.\d+\.\d+$/);
-  assert.equal(packageJson.packageManager, "pnpm@11.25.0");
+  assert.equal(packageJson.packageManager, "pnpm@10.34.6");
+  assert.match(pnpmLock, /^lockfileVersion: '9\.0'$/m);
   assert.equal(packageJson.scripts.build, "next build --webpack");
+  assert.equal(packageJson.scripts.postinstall, "prisma generate");
+  assert.equal(packageJson.scripts["test:deploy"], "node --test --test-concurrency=1");
   assert.equal(packageJson.scripts["db:migrate:dev"], "prisma migrate dev");
   assert.equal(packageJson.scripts["db:migrate:deploy"], "prisma migrate deploy");
 });

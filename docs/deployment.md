@@ -5,7 +5,7 @@
 ## 1. 版本要求
 
 - Node.js：`24.19.0`，以 `.nvmrc` 为准。
-- pnpm：`11.25.0`，以 `package.json` 的 `packageManager` 为准。
+- pnpm：`10.34.6`，以 `package.json` 的 `packageManager` 为准。该版本位于 Vercel 当前明确支持的 pnpm 10 范围内。
 
 生产构建当前显式使用 Next.js 官方支持的 Webpack 构建器。默认 Turbopack 在现有 Windows 验证环境启动 PostCSS worker 时发生内部错误，而相同源码使用 Webpack 可以稳定完成生产构建；后续升级 Next.js 后可重新评估。
 
@@ -23,6 +23,8 @@ pnpm --version
    ```bash
    pnpm install
    ```
+
+   `package.json` 的 `postinstall` 会在依赖安装完成后自动执行 `prisma generate`。本地安装和 Vercel 安装阶段都使用这一流程，避免依赖缓存导致 Prisma Client 与 `schema.prisma` 不一致。需要单独重新生成时仍可执行 `pnpm db:generate`。
 
 2. 启动本地 PostgreSQL。可以使用系统 PostgreSQL，也可以使用 Prisma 官方本地开发服务：
 
@@ -70,6 +72,16 @@ Staging 不得复用 production 数据库、密钥或正式用户数据。
 
 部署平台的健康检查路径配置为 `GET /api/health`。响应 `200` 表示应用可以连接 PostgreSQL；响应 `503` 表示数据库连接不可用，此时实例不应接收流量。该检查只执行 `SELECT 1`，不依赖登录状态，也不读取业务数据。
 
+首次部署前执行统一部署回归：
+
+```bash
+pnpm lint
+pnpm test:deploy
+pnpm build
+```
+
+`test:deploy` 串行运行部署配置、健康检查、认证、Diary 隔离、时区和数据迁移测试。串行执行可以避免多个集成测试同时初始化 PostgreSQL Schema。测试环境需要通过 `TEST_DATABASE_URL`、`DIRECT_URL` 或 `DATABASE_URL` 提供可创建和删除 Schema 的 PostgreSQL 直连地址。
+
 ## 4. Production 部署流程
 
 PostgreSQL 适配及迁移演练完成后，production 发布顺序应为：
@@ -95,7 +107,17 @@ PostgreSQL 适配及迁移演练完成后，production 发布顺序应为：
 
 所有环境变量由部署平台管理。不得提交真实数据库凭据或 Better Auth 密钥。开发、staging、production 必须使用不同的数据库和密钥。
 
-## 6. 数据迁移注意事项
+## 6. 部署前工程检查
+
+- Node.js 使用 `.nvmrc` 指定的 24.x，并在 Vercel 项目设置中选择 Node.js 24.x。
+- 使用仓库声明的 pnpm 10.34.6 和已提交的 `pnpm-lock.yaml`，安装时启用 frozen lockfile。
+- 确认安装日志包含成功的 `prisma generate`；不要依赖旧的 `node_modules` 或 Vercel 依赖缓存。
+- 确认四个 staging 环境变量均已设置，且 `DATABASE_URL` 使用连接池地址、`DIRECT_URL` 使用直连地址。
+- 在部署应用前，由独立发布步骤执行 `pnpm db:migrate:deploy`，禁止在应用启动时执行 migration。
+- 执行 `pnpm lint`、`pnpm test:deploy` 和 `pnpm build`，任一失败都停止部署。
+- 部署后先验证 `GET /api/health`，再执行认证、Session、时区和 Diary 用户隔离冒烟测试。
+
+## 7. 数据迁移注意事项
 
 - 当前生效历史位于 `prisma/migrations`，只包含 PostgreSQL migration。
 - 原 SQLite SQL 原样归档在 `prisma/migrations-sqlite-legacy`，不得对 PostgreSQL 执行。
@@ -107,7 +129,7 @@ PostgreSQL 适配及迁移演练完成后，production 发布顺序应为：
 - 在 staging 至少完成一次可重复的全量迁移演练，再安排 production 切换。
 - PostgreSQL 开始接受新写入后，不能仅靠切换应用版本回滚到 SQLite；应在开放写入前完成最终验证。
 
-## 7. SQLite → PostgreSQL 迁移演练
+## 8. SQLite → PostgreSQL 迁移演练
 
 Phase 2 提供三个独立命令：
 

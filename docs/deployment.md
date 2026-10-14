@@ -68,6 +68,8 @@ Phase 2 只完成本地 staging 等价演练，不执行实际云端 staging 部
 
 Staging 不得复用 production 数据库、密钥或正式用户数据。
 
+部署平台的健康检查路径配置为 `GET /api/health`。响应 `200` 表示应用可以连接 PostgreSQL；响应 `503` 表示数据库连接不可用，此时实例不应接收流量。该检查只执行 `SELECT 1`，不依赖登录状态，也不读取业务数据。
+
 ## 4. Production 部署流程
 
 PostgreSQL 适配及迁移演练完成后，production 发布顺序应为：

@@ -8,7 +8,34 @@
 - 客户端不需要、也不能通过传入 `userId` 指定数据归属。
 - 当前没有公开的 Diary 删除 API，也没有单独的 Diary 详情 JSON API。
 
-## 2. 认证 API
+## 2. 健康检查
+
+### `GET /api/health`
+
+供部署平台检查应用及 PostgreSQL 是否可用。该接口无需登录，只通过当前 Prisma Client 执行轻量的 `SELECT 1`，不会读取业务数据。
+
+数据库连接正常时返回 `200`：
+
+```json
+{
+  "status": "ok",
+  "database": "connected",
+  "timestamp": "2026-10-14T03:00:00.000Z"
+}
+```
+
+数据库不可用时返回 `503`：
+
+```json
+{
+  "status": "error",
+  "database": "disconnected"
+}
+```
+
+失败响应不会包含数据库错误详情、连接地址、环境变量或 Secret。
+
+## 3. 认证 API
 
 Better Auth 通过以下统一 Route Handler 提供认证能力：
 
@@ -27,7 +54,7 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 
 认证请求、响应、Cookie 和密码处理由 Better Auth 定义。`User.timeZone` 是 Better Auth 的附加用户字段，默认 `Asia/Shanghai`；服务端会拒绝非法时区。
 
-## 3. 用户设置
+## 4. 用户设置
 
 ### `GET /api/settings`
 
@@ -58,7 +85,7 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 
 用户身份只取自 Better Auth Session；请求体包含 `userId` 时返回 `400`。请求体包含 `email` 时也返回 `400`，不会修改邮箱。
 
-## 4. 今日 Diary
+## 5. 今日 Diary
 
 ### `GET /api/diary/today`
 
@@ -117,7 +144,7 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 }
 ```
 
-## 5. 历史 Diary
+## 6. 历史 Diary
 
 ### `GET /api/diary`
 
@@ -131,7 +158,7 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 
 响应中的每个条目使用与今日 Diary 相同的公开字段，不包含 `userId` 和当前未使用的 `content`。
 
-## 6. 搜索 Diary
+## 7. 搜索 Diary
 
 ### `GET /api/diary/search?q=关键词`
 
@@ -149,7 +176,7 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 }
 ```
 
-## 7. 页面侧详情读取
+## 8. 页面侧详情读取
 
 `/diary/[id]` 不是 JSON API。该服务端页面调用 `getDiaryById(currentUser.id, id)`：
 
@@ -157,7 +184,7 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 - Diary 属于当前用户时展示详情。
 - Diary 不存在或属于其他用户时返回 404。
 
-## 8. 当前错误响应
+## 9. 当前错误响应
 
 | 场景 | 状态码 | 当前消息 |
 | --- | --- | --- |
@@ -174,7 +201,7 @@ Better Auth 通过以下统一 Route Handler 提供认证能力：
 | 历史读取失败 | 500 | `读取历史日志失败` |
 | 搜索失败 | 500 | `搜索日志失败` |
 
-## 9. Dashboard 数据访问
+## 10. Dashboard 数据访问
 
 Dashboard 没有新增公开 JSON API。登录后的 `/` 是服务端页面，从 Better Auth Session 获取当前用户，并通过 `diary-service` 调用：
 

@@ -13,6 +13,7 @@
     "test:timezone": "node --test tests/time-zone.test.mjs",
     "test:deployment": "node --test tests/deployment-config.test.mjs",
     "test:migration": "node --test tests/data-migration.test.mjs",
+    "test:health": "node --test tests/health-api.test.mjs",
     "migration:export:sqlite": "node scripts/export-sqlite-data.mjs",
     "migration:import:postgres": "node scripts/import-postgres-data.mjs",
     "migration:verify": "node scripts/verify-migration.mjs",

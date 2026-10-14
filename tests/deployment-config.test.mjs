@@ -31,3 +31,18 @@ test("provides a production environment template without real credentials", asyn
   assert.match(template, /replace-with-a-production-secret/);
   assert.match(template, /https:\/\/your-domain\.example\.com/);
 });
+
+test("uses a PostgreSQL schema and a PostgreSQL-only migration history", async () => {
+  const schema = await readFile("prisma/schema.prisma", "utf8");
+  const migrationLock = await readFile("prisma/migrations/migration_lock.toml", "utf8");
+  const initialMigration = await readFile(
+    "prisma/migrations/20261014000000_postgresql_init/migration.sql",
+    "utf8",
+  );
+
+  assert.match(schema, /provider\s+=\s+"postgresql"/);
+  assert.match(schema, /directUrl\s+=\s+env\("DIRECT_URL"\)/);
+  assert.match(migrationLock, /provider = "postgresql"/);
+  assert.match(initialMigration, /TIMESTAMP\(3\)/);
+  assert.doesNotMatch(initialMigration, /PRAGMA|DATETIME|new_Diary|new_User/);
+});

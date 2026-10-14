@@ -48,12 +48,18 @@
 - 建立本地、staging、production 与数据迁移注意事项文档。
 - 保持 SQLite、现有 migration、Diary 和 Auth 业务逻辑不变。
 
+### Phase 1：PostgreSQL 适配（已完成）
+
+- Prisma datasource 和 Better Auth Adapter 适配 PostgreSQL。
+- 原 SQLite migration 原样归档，建立全新的 PostgreSQL 初始 migration。
+- 认证、Session、用户设置、Diary CRUD、Dashboard、搜索和时区逻辑在本地 PostgreSQL 上验证。
+- 尚未部署云端资源，也没有迁移生产数据。
+
 ### 后续 Phase（未实现）
 
-1. PostgreSQL 适配：调整 Prisma datasource 和 Better Auth Adapter，建立 PostgreSQL migration 历史。
-2. 数据迁移演练：在 staging 迁移 SQLite 数据并验证数量、ID、内容、关联和用户隔离。
-3. 云端基础设施：配置托管 PostgreSQL、连接池、密钥、正式域名、备份和监控。
-4. Production 切换：短暂停写、最终迁移、自动校验、部署和观察。
+1. 数据迁移演练：在 staging 迁移 SQLite 数据并验证数量、ID、内容、关联和用户隔离。
+2. 云端基础设施：配置托管 PostgreSQL、连接池、密钥、正式域名、备份和监控。
+3. Production 切换：短暂停写、最终迁移、自动校验、部署和观察。
 
 各 Phase 独立实施。Phase 0 不修改数据库结构，也不创建 PostgreSQL migration。
 

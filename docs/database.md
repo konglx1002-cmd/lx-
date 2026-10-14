@@ -2,7 +2,9 @@
 
 ## 1. 当前数据库
 
-项目当前使用 SQLite，由 Prisma 管理 Schema 和迁移。数据库连接通过 `DATABASE_URL` 环境变量配置。
+项目当前 Schema 已适配 PostgreSQL，由 Prisma 管理模型和 PostgreSQL migration。应用运行时通过 `DATABASE_URL` 连接数据库，Prisma Migrate 通过 `DIRECT_URL` 使用直连地址。
+
+本阶段只完成数据库架构适配和本地测试，没有部署云端资源，也没有迁移原 SQLite 中的生产数据。
 
 ## 2. 模型概览
 
@@ -74,18 +76,37 @@ Diary 日期由用户时区计算成 `YYYY-MM-DD`，再以对应 UTC 零点的 `
 
 用户设置使用相同的隔离原则：服务端从 Session 获取 `User.id`，并只以该主键更新用户记录。请求体如果包含 `userId` 会直接返回 `400`。
 
-## 4. 已完成迁移
+## 4. Migration 历史
+
+当前生效的 PostgreSQL migration 位于 `prisma/migrations`：
 
 | 迁移 | 作用 |
 | --- | --- |
-| `20261013000000_init` | 创建单用户时期的 `Diary` 表 |
-| `20261013130241_add_auth` | 创建 Better Auth 所需表和索引 |
-| `20261013140000_add_diary_user_ownership` | 新增 `Diary.userId`，将日期唯一约束改为 `(userId, date)` |
-| `20261013144625_add_user_time_zone` | 新增 `User.timeZone`，既有用户默认 `Asia/Shanghai` |
+| `20261014000000_postgresql_init` | 从空 PostgreSQL 数据库创建当前完整的 User、Account、Session、Verification 和 Diary 结构 |
 
-多人迁移保留了原 Diary 的 ID、日期和内容。若数据库中存在旧 Diary 但没有用户，迁移会创建仅用于承接旧数据的 `legacy-diary-owner`；否则旧 Diary 归属到最早创建的现有用户。
+原 SQLite migration 未被修改或复用，完整归档在 `prisma/migrations-sqlite-legacy`。该目录只用于追溯旧数据库演进，不会被 `prisma migrate dev` 或 `prisma migrate deploy` 执行。
 
-## 5. PostgreSQL 说明
+PostgreSQL 初始 migration 直接表达当前 Schema，使用 PostgreSQL 的 `TIMESTAMP(3)`、外键、索引和复合唯一约束。后续数据库修改只能在该 PostgreSQL 历史上新增 migration。
 
-PostgreSQL 仍是后续规划，不是当前数据库。迁移时不能只修改连接字符串，还需要生成并审核 PostgreSQL 专用迁移、迁移现有数据、校验复合唯一约束和外键，并建立生产备份与恢复流程。
+## 5. PostgreSQL 类型兼容性
+
+- Prisma `String` 映射为 PostgreSQL `TEXT`。
+- Prisma `Boolean` 映射为 PostgreSQL `BOOLEAN`。
+- Prisma `DateTime` 映射为 `TIMESTAMP(3)`。
+- `User.email`、`Session.token` 和 `(Diary.userId, Diary.date)` 的唯一约束保持不变。
+- `Session`、`Account`、`Diary` 到 `User` 的外键继续使用级联删除。
+- Diary 日期仍按用户时区计算为日期键并保存为 UTC 零点 `DateTime`，业务逻辑没有改变。
+
+## 6. 数据库连接
+
+| 变量 | 用途 |
+| --- | --- |
+| `DATABASE_URL` | 应用运行时连接。云端可以使用连接池地址；本地可以使用直连地址 |
+| `DIRECT_URL` | Prisma migration 和管理操作使用的直连地址 |
+
+本地 PostgreSQL 没有连接池时，两者可以使用同一个 URL。Staging 和 production 必须分别使用自己的数据库和凭据。
+
+## 7. 数据迁移边界
+
+Phase 1 没有把 SQLite 数据导入 PostgreSQL。后续数据迁移仍需单独处理 User、Account、Diary 数据，保留所有 ID、关联、密码哈希、日期和内容，并验证迁移前后的数量与内容一致性。归档的 SQLite migration 不能在 PostgreSQL 上执行。
 

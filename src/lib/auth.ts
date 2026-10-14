@@ -6,7 +6,7 @@ import { DEFAULT_TIME_ZONE, timeZoneInputSchema } from "@/lib/time-zone";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
-    provider: "sqlite",
+    provider: "postgresql",
   }),
   emailAndPassword: {
     enabled: true,

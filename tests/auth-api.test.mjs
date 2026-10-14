@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { rm } from "node:fs/promises";
-import { resolve } from "node:path";
 import test from "node:test";
 
-const databaseUrl = "file:./auth-api-test.db";
-const databasePath = resolve("prisma/auth-api-test.db");
+import { createPostgresTestDatabase } from "./postgres-test-database.mjs";
+
 const baseUrl = "http://127.0.0.1:3101";
 const authSecret = "auth-test-secret-with-at-least-32-characters";
 
@@ -29,20 +27,6 @@ async function waitForServer(server, getOutput) {
   }
 
   throw new Error(`Timed out waiting for Next.js.\n${getOutput()}`);
-}
-
-async function removeDatabase(path) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      await rm(path, { force: true });
-      return;
-    } catch (error) {
-      if (error.code !== "EBUSY" || attempt === 19) {
-        throw error;
-      }
-      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
-    }
-  }
 }
 
 function cookieFrom(response) {
@@ -72,98 +56,19 @@ async function getSession(cookie) {
 }
 
 test("supports authentication and isolated user settings", { timeout: 90_000 }, async () => {
+  const database = await createPostgresTestDatabase("auth_api_test");
+  const { databaseUrl, prisma } = database;
   const env = {
     ...process.env,
     DATABASE_URL: databaseUrl,
+    DIRECT_URL: databaseUrl,
     BETTER_AUTH_SECRET: authSecret,
     BETTER_AUTH_URL: baseUrl,
   };
   let output = "";
-  let prisma;
   let server;
 
   try {
-    process.env.DATABASE_URL = databaseUrl;
-    const { PrismaClient } = await import("@prisma/client");
-    prisma = new PrismaClient();
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE "User" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "name" TEXT NOT NULL,
-        "email" TEXT NOT NULL,
-        "emailVerified" BOOLEAN NOT NULL DEFAULT false,
-        "timeZone" TEXT NOT NULL DEFAULT 'Asia/Shanghai',
-        "image" TEXT,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL
-      )
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE "Session" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "expiresAt" DATETIME NOT NULL,
-        "token" TEXT NOT NULL,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL,
-        "ipAddress" TEXT,
-        "userAgent" TEXT,
-        "userId" TEXT NOT NULL,
-        CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-      )
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE "Account" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "accountId" TEXT NOT NULL,
-        "providerId" TEXT NOT NULL,
-        "userId" TEXT NOT NULL,
-        "accessToken" TEXT,
-        "refreshToken" TEXT,
-        "idToken" TEXT,
-        "accessTokenExpiresAt" DATETIME,
-        "refreshTokenExpiresAt" DATETIME,
-        "scope" TEXT,
-        "password" TEXT,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL,
-        CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-      )
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE "Verification" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "identifier" TEXT NOT NULL,
-        "value" TEXT NOT NULL,
-        "expiresAt" DATETIME NOT NULL,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL
-      )
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE "Diary" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "userId" TEXT NOT NULL,
-        "date" DATETIME NOT NULL,
-        "completedTasks" TEXT NOT NULL,
-        "problems" TEXT NOT NULL,
-        "nextPlan" TEXT NOT NULL,
-        "content" TEXT NOT NULL,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL,
-        CONSTRAINT "Diary_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-      )
-    `);
-    await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX "User_email_key" ON "User"("email")');
-    await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX "Session_token_key" ON "Session"("token")');
-    await prisma.$executeRawUnsafe('CREATE INDEX "Session_userId_idx" ON "Session"("userId")');
-    await prisma.$executeRawUnsafe('CREATE INDEX "Account_userId_idx" ON "Account"("userId")');
-    await prisma.$executeRawUnsafe(
-      'CREATE INDEX "Verification_identifier_idx" ON "Verification"("identifier")',
-    );
-    await prisma.$executeRawUnsafe(
-      'CREATE UNIQUE INDEX "Diary_userId_date_key" ON "Diary"("userId", "date")',
-    );
-
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-p", "3101"], {
       cwd: process.cwd(),
       env,
@@ -346,8 +251,6 @@ test("supports authentication and isolated user settings", { timeout: 90_000 }, 
         new Promise((resolveWait) => setTimeout(resolveWait, 5_000)),
       ]);
     }
-    await prisma?.$disconnect();
-    await removeDatabase(databasePath);
-    await removeDatabase(`${databasePath}-journal`);
+    await database.cleanup();
   }
 });

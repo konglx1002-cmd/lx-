@@ -22,7 +22,7 @@
 | Web 框架 | Next.js 16，App Router |
 | UI | React 19、TypeScript、Tailwind CSS 4 |
 | 数据访问 | Prisma 6 |
-| 数据库 | SQLite |
+| 数据库 | PostgreSQL（本地适配完成，尚未部署云端） |
 | 认证 | Better Auth，Prisma Adapter，邮箱密码认证 |
 | 测试 | Node.js 内置测试运行器 |
 | 代码检查 | ESLint |
@@ -66,7 +66,7 @@ tests/                         认证、Diary 隔离和时区测试
   -> Next.js 页面 / Route Handler
   -> getCurrentUser() 获取 Session 用户
   -> diary-service 传入 user.id
-  -> Prisma 查询或写入 SQLite
+  -> Prisma 查询或写入 PostgreSQL
 ```
 
 `diary-service` 是当前 Diary 数据访问边界。历史、搜索、详情和今日记录的查询都要求传入服务端获得的 `userId`。客户端请求体中的 `userId` 不参与权限判断或数据写入。
@@ -92,18 +92,18 @@ Dashboard 同样只通过 `diary-service` 获取数据：今日状态使用 `get
 
 ## 6. 云端演进边界
 
-当前架构通过 Prisma 隔离数据库访问，便于未来替换数据库。但 SQLite 文件不适合作为多实例云服务的共享数据库。云端部署前需要单独完成 PostgreSQL Schema、数据迁移、备份恢复和生产环境密钥配置；这些能力目前尚未实现。
+当前架构通过 Prisma 隔离数据库访问。Prisma Schema 和 Better Auth Adapter 已切换到 PostgreSQL，并建立了独立的 PostgreSQL migration 历史；云端资源、SQLite 数据迁移、备份恢复和生产环境密钥仍未实施。
 
 ## 7. v2.2 云端化架构计划
 
-Phase 0 已完成部署工程准备，但没有改变运行时数据库和业务逻辑：
+Phase 0 已完成部署工程准备：
 
 - 使用 `.nvmrc` 和 `packageManager` 固定 Node.js 与 pnpm 版本。
 - 使用 `.env.production.example` 定义未来云端环境变量接口，不保存真实密钥。
 - 明确区分本地开发迁移 `db:migrate:dev` 与生产迁移 `db:migrate:deploy`。
 - 建立本地、staging 和 production 的部署流程文档。
 
-后续目标架构为 Next.js Node.js 应用、托管 PostgreSQL 和 Better Auth。应用流量使用 PostgreSQL 连接池地址，发布流水线通过数据库直连地址执行已经提交的 migration。Better Auth 仍由 Next.js 提供接口并通过 Prisma 保存用户、账户和 Session，不引入独立认证服务。
+Phase 1 已完成 PostgreSQL 数据库适配和本地验证。后续目标架构为 Next.js Node.js 应用、托管 PostgreSQL 和 Better Auth。应用流量使用 PostgreSQL 连接池地址，发布流水线通过数据库直连地址执行已经提交的 migration。Better Auth 仍由 Next.js 提供接口并通过 Prisma 保存用户、账户和 Session，不引入独立认证服务。
 
-当前 Prisma datasource、Better Auth Adapter、SQLite migration 和实际数据仍全部保持不变。PostgreSQL Schema、数据迁移工具、托管资源和上线流水线属于后续 Phase，不是 Phase 0 已完成功能。
+原 SQLite migration 已归档且不会被 PostgreSQL 执行。实际 SQLite 数据、托管资源和上线流水线属于后续 Phase，Phase 1 没有迁移生产数据或进行部署。
 
